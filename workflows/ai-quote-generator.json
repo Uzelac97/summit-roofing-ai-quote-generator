@@ -1,0 +1,925 @@
+{
+  "name": "Summit Roofing – AI Quote Generator",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Get a Roof Quote",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Name",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Email",
+              "fieldType": "email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Address"
+            },
+            {
+              "fieldLabel": "Job description",
+              "fieldType": "textarea",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Roof photos",
+              "fieldType": "file",
+              "acceptFileTypes": ".jpg, .jpeg, .png",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        0
+      ],
+      "id": "08221a37-ec2f-40f6-81ac-9732a2e77334",
+      "name": "On form submission",
+      "webhookId": "8aa3a026-31b9-4f41-b35c-9d7a7ae5b297"
+    },
+    {
+      "parameters": {
+        "resource": "image",
+        "modelId": {
+          "__rl": true,
+          "value": "claude-sonnet-5-5",
+          "mode": "list",
+          "cachedResultName": "claude-sonnet-5-5"
+        },
+        "text": "=You are an estimator for a roofing company. Analyze the customer's description and the roof photo and return ONLY valid JSON, no other text.\n\nCustomer description: {{ $('On form submission').item.json['Job description'] }}\n\nAllowed items (item_id: unit). The quantity MUST be expressed in the listed unit:\ntile_replace: m2, tile_repair: piece, gutter_replace: m, gutter_clean: m, flashing_repair: m, ridge_repair: m, leak_fix: job, insulation: m2, skylight_install: piece, scaffolding: job, inspection: job, disposal: job, moss_removal: m2\n\nReturn exactly this structure:\n{\n  \"job_type\": \"string\",\n  \"items\": [{\"item_id\": \"string\", \"quantity\": number, \"quantity_estimated\": boolean, \"reasoning\": \"string\"}],\n  \"roof_area_m2_estimate\": number or null,\n  \"material\": \"string\",\n  \"urgency\": \"low | medium | high\",\n  \"missing_info\": [\"string\"],\n  \"confidence\": number between 0 and 1\n}\n\nRules:\n- Use only the allowed item_ids.\n- Never mention or invent prices.\n- Set \"quantity_estimated\": true if the quantity was not explicitly stated by the customer or clearly measurable from the photo. Estimate conservatively and lower the confidence.\n- List anything you could not determine in missing_info.\n- List at most 4 of the most important items in missing_info.\n- Keep each \"reasoning\" under 15 words.\n- Include only items that are clearly visible in the photo or explicitly mentioned in the description.\n- Do not add leak_fix unless a leak or water damage is mentioned or visible.\n- Do not charge the same work twice (e.g. tile_repair and tile_replace for the same area).\n- Always include inspection (quantity 1) when the description is vague or your confidence is below 0.7.",
+        "inputType": "binary",
+        "binaryPropertyName": "Roof_photos",
+        "options": {
+          "maxTokens": 4096
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        208,
+        0
+      ],
+      "id": "11c6de3e-df60-4157-bfc6-f119b12ac53f",
+      "name": "Analyze roof with Claude",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "anthropicApi": {
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const blocks = $input.first().json.content;\nconst raw = blocks.filter(b => b.type === 'text').map(b => b.text).join('');\nconst clean = raw.replace(/```json|```/g, '').trim();\nconst analysis = JSON.parse(clean);\nconst form = $('On form submission').first().json;\n\nreturn [{\n  json: {\n    name: form['Name'],\n    email: form['Email'],\n    address: form['Address'],\n    description: form['Job description'],\n    ...analysis\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "33063922-ee6c-41cb-a4fb-918e82ec9cd8",
+      "name": "Parse AI response"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Summit Roofing - Price List",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "PriceList",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        656,
+        0
+      ],
+      "id": "0b984a41-9863-4a28-a258-58c8c4d1aa4b",
+      "name": "Get price list",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const analysis = $('Parse AI response').first().json;\nconst prices = {};\nfor (const row of $input.all()) {\n  prices[row.json.item_id] = row.json;\n}\n\nconst lines = [];\nconst unknown = [];\nlet total = 0;\n\nfor (const item of analysis.items) {\n  const p = prices[item.item_id];\n  if (!p) {\n    unknown.push(item.item_id);\n    continue;\n  }\n  const lineTotal = Math.round(item.quantity * Number(p.price_eur) * 100) / 100;\n  total += lineTotal;\n  lines.push({\n    item_id: item.item_id,\n    description: p.description,\n    quantity: item.quantity,\n    quantity_estimated: p.unit !== 'job' && item.quantity_estimated === true,\n    unit: p.unit,\n    unit_price: Number(p.price_eur),\n    line_total: lineTotal\n  });\n}\n\nreturn [{\n  json: {\n    ...analysis,\n    lines,\n    unknown_items: unknown,\n    total_eur: Math.round(total * 100) / 100,\n    needs_review: analysis.confidence < 0.6 || lines.some(l => l.quantity_estimated) || unknown.length > 0\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        0
+      ],
+      "id": "9b1f1ebe-442e-47d3-aa0b-c067cbcfcbe2",
+      "name": "Calculate prices"
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\nconst today = new Date().toLocaleDateString('en-GB');\nconst quoteNo = d.quoteNo || ('SR-' + Date.now().toString().slice(-6));\nconst eur = n => new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(n);\nconst esc = s => String(s ?? '').replace(/[&<>\"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst unitLabel = u => ({ m2: 'm²', piece: 'pcs', job: 'job', m: 'm' }[u] || u);\n\nconst hasEstimates = d.lines.some(l => l.quantity_estimated);\n\nconst rows = d.lines.map(l => `\n  <tr>\n    <td>${esc(l.description)}</td>\n    <td class=\"r\">${l.quantity} ${esc(unitLabel(l.unit))}${l.quantity_estimated ? ' <span class=\"est\">*</span>' : ''}</td>\n    <td class=\"r\">${eur(l.unit_price)}</td>\n    <td class=\"r\">${eur(l.line_total)}</td>\n  </tr>`).join('');\n\nconst html = `<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\">\n<style>\n  body { font-family: Arial, sans-serif; color: #1f2937; margin: 40px; font-size: 13px; }\n  .head { display: flex; justify-content: space-between; border-bottom: 3px solid #c2410c; padding-bottom: 14px; }\n  h1 { margin: 0; color: #c2410c; font-size: 26px; }\n  h2 { font-size: 14px; margin: 26px 0 6px; text-transform: uppercase; color: #6b7280; }\n  table { width: 100%; border-collapse: collapse; margin-top: 8px; }\n  th { text-align: left; background: #f3f4f6; padding: 8px; }\n  td { padding: 8px; border-bottom: 1px solid #e5e7eb; }\n  .r { text-align: right; }\n  .est { color: #c2410c; font-weight: bold; }\n  .legend { margin-top: 6px; font-size: 11px; color: #6b7280; }\n  .total { text-align: right; font-size: 18px; font-weight: bold; margin-top: 16px; }\n  .note { margin-top: 30px; padding: 12px; background: #fff7ed; border-left: 4px solid #c2410c; font-size: 12px; }\n</style></head><body>\n  <div class=\"head\">\n    <div><h1>Summit Roofing</h1><div>Roofing &amp; Gutter Specialists</div></div>\n    <div style=\"text-align:right\">Quote ${quoteNo}<br>${today}</div>\n  </div>\n  <h2>Prepared for</h2>\n  <div>${esc(d.name)}<br>${esc(d.address)}<br>${esc(d.email)}</div>\n  <h2>Job summary</h2>\n  <div>${esc(d.job_type)}</div>\n  <h2>Quote details</h2>\n  <table>\n    <tr><th>Description</th><th class=\"r\">Quantity</th><th class=\"r\">Unit price</th><th class=\"r\">Total</th></tr>\n    ${rows}\n  </table>\n  ${hasEstimates ? '<div class=\"legend\"><span class=\"est\">*</span> Estimated quantity, to be confirmed on site.</div>' : ''}\n  <div class=\"total\">Total estimate: ${eur(d.total_eur)}</div>\n  <div class=\"note\">This is a draft estimate based on the information and photos provided. The final price will be confirmed after an on-site inspection. Valid for 30 days.</div>\n</body></html>`;\n\nconst binary = await this.helpers.prepareBinaryData(Buffer.from(html, 'utf-8'), 'index.html', 'text/html');\n\nreturn [{ json: { ...d, quoteNo }, binary: { data: binary } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1088,
+        0
+      ],
+      "id": "38400eff-9d0f-401f-b177-f9c811cba6dc",
+      "name": "Build quote HTML"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://gotenberg:3000/forms/chromium/convert/html",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Gotenberg-Output-Filename",
+              "value": "=Quote_{{ $json.quoteNo }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "files",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "pdf"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1312,
+        0
+      ],
+      "id": "29408978-5575-4b7f-b98a-b9fd6d35cef3",
+      "name": "Generate PDF",
+      "retryOnFail": true,
+      "waitBetweenTries": 500
+    },
+    {
+      "parameters": {
+        "sendTo": "owner@example.com",
+        "subject": "={{ $('Build quote HTML').item.json.urgency === 'high' ? '🔴 URGENT – ' : '' }}{{ $('Build quote HTML').item.json.needs_review ? '⚠ Needs review – ' : '' }}Quote {{ $('Build quote HTML').item.json.quoteNo }} ready for review",
+        "emailType": "text",
+        "message": "=New quote request from {{ $('Build quote HTML').item.json.name }}.\nTotal: {{ new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format($('Build quote HTML').item.json.total_eur) }}\nAI confidence: {{ $('Build quote HTML').item.json.confidence }}\nUrgency: {{ $('Build quote HTML').item.json.urgency }}\n{{ $('Build quote HTML').item.json.needs_review ? '\\n⚠ NEEDS REVIEW: check items marked (estimated) before sending.\\n' : '' }}\nItems and AI reasoning:\n{{ $('Build quote HTML').item.json.lines.map(l => '- ' + l.item_id + ' x' + l.quantity + (l.quantity_estimated ? ' (estimated)' : '') + ': ' + ($('Build quote HTML').item.json.items.find(i => i.item_id === l.item_id)?.reasoning || '')).join('\\n') }}\n{{ $('Build quote HTML').item.json.unknown_items.length ? '\\nNot in price list (not priced): ' + $('Build quote HTML').item.json.unknown_items.join(', ') + '\\n' : '' }}\nMissing info:\n{{ $('Build quote HTML').item.json.missing_info.map(m => '- ' + m).join('\\n') }}\n\nDraft PDF attached.",
+        "options": {
+          "appendAttribution": false,
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {
+                "property": "pdf"
+              }
+            ]
+          },
+          "senderName": "Summit Roofing"
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1520,
+        0
+      ],
+      "id": "c09785d3-0c3e-4d72-afb8-b57c4d7f6316",
+      "name": "Email owner: draft",
+      "webhookId": "feac739c-b54f-44ef-8bb6-b0a829b9f3ca",
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendAndWait",
+        "sendTo": "owner@example.com",
+        "subject": "=Approve quote {{ $('Build quote HTML').item.json.quoteNo }}?",
+        "message": "=Send quote {{ $('Build quote HTML').item.json.quoteNo }} ({{ new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format($('Build quote HTML').item.json.total_eur) }}) to {{ $('Build quote HTML').item.json.name }}? The draft PDF is in the previous email.\n\nCurrent quantities: {{ $('Build quote HTML').item.json.lines.map(l => l.item_id + '=' + l.quantity).join(', ') }}\n\nTo change: choose \"Approve with changes\" and enter e.g. gutter_clean=18, tile_repair=4. Use 0 to remove an item. Any item_id from the price list can be added.",
+        "responseType": "customForm",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Decision",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Approve"
+                  },
+                  {
+                    "option": "Approve with changes"
+                  },
+                  {
+                    "option": "Decline"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Quantity corrections",
+              "placeholder": "gutter_clean=18, tile_repair=4"
+            },
+            {
+              "fieldLabel": "Note to customer",
+              "fieldType": "textarea"
+            }
+          ]
+        },
+        "options": {
+          "messageButtonLabel": "Review quote",
+          "responseFormTitle": "Review quote",
+          "limitWaitTime": {
+            "values": {
+              "resumeAmount": 7,
+              "resumeUnit": "days"
+            }
+          },
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1744,
+        0
+      ],
+      "id": "cd3c12ba-3fab-4b93-bfb0-407b7d28c411",
+      "name": "Owner approval",
+      "webhookId": "ec548cee-c13f-40a9-b1de-8af359d0557c",
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const q = $('Build quote HTML').first().json;\nconst resp = $('Owner approval').first().json;\nconst form = resp.data ?? resp;\n\nreturn [{\n  json: { ...q, owner_note: form['Note to customer'] || '', status: 'Sent' },\n  binary: $('Generate PDF').first().binary\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2176,
+        -272
+      ],
+      "id": "8bf31e6e-33f4-4b25-ab40-438da2eb0b12",
+      "name": "Restore PDF"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.email }}",
+        "subject": "=Your roofing quote {{ $json.quoteNo }} from Summit Roofing",
+        "message": "=<p>Hi {{ $json.name }},</p>\n\n<p>Thank you for your request. Please find your quote attached (total estimate: <strong>{{ new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format($json.total_eur) }}</strong>).</p>\n\n{{ $json.owner_note ? '<p>' + $json.owner_note + '</p>' : '' }}\n\n<p>The final price will be confirmed after an on-site inspection. Reply to this email if you have questions.</p>\n\n<p>Best regards,<br>Summit Roofing</p>",
+        "options": {
+          "appendAttribution": false,
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {
+                "property": "pdf"
+              }
+            ]
+          },
+          "senderName": "Summit Roofing"
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2384,
+        -272
+      ],
+      "id": "25d091b6-c142-48d9-ba55-aa0401e9227e",
+      "name": "Send quote to customer",
+      "webhookId": "64528d94-bb5a-4dae-92e6-e46ec6fe0386",
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Summit Roofing - Price List",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 881375403,
+          "mode": "list",
+          "cachedResultName": "Quotes_Log",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit#gid=881375403"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "date": "={{ $now.toFormat('yyyy-MM-dd HH:mm') }}",
+            "customer_name": "={{ ($('Restore revised PDF').isExecuted ? $('Restore revised PDF') : $('Restore PDF')).first().json.name }}",
+            "email": "={{ ($('Restore revised PDF').isExecuted ? $('Restore revised PDF') : $('Restore PDF')).first().json.email }}",
+            "job_summary": "={{ ($('Restore revised PDF').isExecuted ? $('Restore revised PDF') : $('Restore PDF')).first().json.job_type }}",
+            "total_eur": "={{ ($('Restore revised PDF').isExecuted ? $('Restore revised PDF') : $('Restore PDF')).first().json.total_eur }}",
+            "status": "={{ ($('Restore revised PDF').isExecuted ? $('Restore revised PDF') : $('Restore PDF')).first().json.status }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "date",
+              "displayName": "date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "customer_name",
+              "displayName": "customer_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "job_summary",
+              "displayName": "job_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "total_eur",
+              "displayName": "total_eur",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2608,
+        -272
+      ],
+      "id": "25adf534-c78b-4776-b741-0e6e8e3e4b7d",
+      "name": "Log sent quote",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Summit Roofing - Price List",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 881375403,
+          "mode": "list",
+          "cachedResultName": "Quotes_Log",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit#gid=881375403"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "date": "={{ $now.toFormat('yyyy-MM-dd HH:mm') }}",
+            "customer_name": "={{ $('Build quote HTML').item.json.name }}",
+            "email": "={{ $('Build quote HTML').item.json.email }}",
+            "job_summary": "={{ $('Build quote HTML').item.json.job_type }}",
+            "total_eur": "={{ $('Build quote HTML').item.json.total_eur }}",
+            "status": "Declined"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "date",
+              "displayName": "date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "customer_name",
+              "displayName": "customer_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "job_summary",
+              "displayName": "job_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "total_eur",
+              "displayName": "total_eur",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2160,
+        288
+      ],
+      "id": "138fc2d2-11d1-4c1e-8f29-6c7f8f981ef4",
+      "name": "Log declined quote",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.data.Decision }}",
+                    "rightValue": "Approve",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "be8e44ca-a1f6-4972-ace5-7dbbf10b3e6c"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Approve"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "d2d7d288-03e7-4fe4-9079-61f2d2103caf",
+                    "leftValue": "={{ $json.data.Decision }}",
+                    "rightValue": "Approve with changes",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Changes"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "5507d0b3-57c3-438c-b82b-ef5093ad09f1",
+                    "leftValue": "={{ $json.data.Decision }}",
+                    "rightValue": "Decline",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Decline"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1968,
+        -16
+      ],
+      "id": "74f544d0-7e53-4124-90b1-c4e831159283",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('Build quote HTML').first().json;\nconst resp = $('Owner approval').first().json;\nconst form = resp.data ?? resp;\n\nconst prices = {};\nfor (const row of $('Get price list').all()) prices[row.json.item_id] = row.json;\n\nconst qty = {};\nfor (const l of base.lines) qty[l.item_id] = { quantity: l.quantity, estimated: l.quantity_estimated };\n\nconst invalid = [];\nfor (const part of String(form['Quantity corrections'] ?? '').split(/[,;\\n]+/)) {\n  const p = part.trim();\n  if (!p) continue;\n  const m = p.match(/^([a-z_]+)\\s*=\\s*(\\d+(?:[.,]\\d+)?)$/i);\n  if (!m || !prices[m[1]]) { invalid.push(p); continue; }\n  qty[m[1]] = { quantity: Number(m[2].replace(',', '.')), estimated: false };\n}\nif (invalid.length) throw new Error('Invalid corrections: ' + invalid.join(', '));\n\nconst lines = [];\nlet total = 0;\nfor (const [item_id, q] of Object.entries(qty)) {\n  if (q.quantity <= 0) continue;\n  const p = prices[item_id];\n  const lineTotal = Math.round(q.quantity * Number(p.price_eur) * 100) / 100;\n  total += lineTotal;\n  lines.push({\n    item_id,\n    description: p.description,\n    quantity: q.quantity,\n    quantity_estimated: q.estimated,\n    unit: p.unit,\n    unit_price: Number(p.price_eur),\n    line_total: lineTotal\n  });\n}\n\nreturn [{\n  json: {\n    ...base,\n    lines,\n    total_eur: Math.round(total * 100) / 100,\n    owner_note: form['Note to customer'] || ''\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2208,
+        0
+      ],
+      "id": "a8486789-08cd-4ff1-9e2d-60fdebfcd3ca",
+      "name": "Apply corrections"
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\nconst today = new Date().toLocaleDateString('en-GB');\nconst quoteNo = d.quoteNo || ('SR-' + Date.now().toString().slice(-6));\nconst eur = n => new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(n);\nconst esc = s => String(s ?? '').replace(/[&<>\"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst unitLabel = u => ({ m2: 'm²', piece: 'pcs', job: 'job', m: 'm' }[u] || u);\n\nconst hasEstimates = d.lines.some(l => l.quantity_estimated);\n\nconst rows = d.lines.map(l => `\n  <tr>\n    <td>${esc(l.description)}</td>\n    <td class=\"r\">${l.quantity} ${esc(unitLabel(l.unit))}${l.quantity_estimated ? ' <span class=\"est\">*</span>' : ''}</td>\n    <td class=\"r\">${eur(l.unit_price)}</td>\n    <td class=\"r\">${eur(l.line_total)}</td>\n  </tr>`).join('');\n\nconst html = `<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\">\n<style>\n  body { font-family: Arial, sans-serif; color: #1f2937; margin: 40px; font-size: 13px; }\n  .head { display: flex; justify-content: space-between; border-bottom: 3px solid #c2410c; padding-bottom: 14px; }\n  h1 { margin: 0; color: #c2410c; font-size: 26px; }\n  h2 { font-size: 14px; margin: 26px 0 6px; text-transform: uppercase; color: #6b7280; }\n  table { width: 100%; border-collapse: collapse; margin-top: 8px; }\n  th { text-align: left; background: #f3f4f6; padding: 8px; }\n  td { padding: 8px; border-bottom: 1px solid #e5e7eb; }\n  .r { text-align: right; }\n  .est { color: #c2410c; font-weight: bold; }\n  .legend { margin-top: 6px; font-size: 11px; color: #6b7280; }\n  .total { text-align: right; font-size: 18px; font-weight: bold; margin-top: 16px; }\n  .note { margin-top: 30px; padding: 12px; background: #fff7ed; border-left: 4px solid #c2410c; font-size: 12px; }\n</style></head><body>\n  <div class=\"head\">\n    <div><h1>Summit Roofing</h1><div>Roofing &amp; Gutter Specialists</div></div>\n    <div style=\"text-align:right\">Quote ${quoteNo}<br>${today}</div>\n  </div>\n  <h2>Prepared for</h2>\n  <div>${esc(d.name)}<br>${esc(d.address)}<br>${esc(d.email)}</div>\n  <h2>Job summary</h2>\n  <div>${esc(d.job_type)}</div>\n  <h2>Quote details</h2>\n  <table>\n    <tr><th>Description</th><th class=\"r\">Quantity</th><th class=\"r\">Unit price</th><th class=\"r\">Total</th></tr>\n    ${rows}\n  </table>\n  ${hasEstimates ? '<div class=\"legend\"><span class=\"est\">*</span> Estimated quantity, to be confirmed on site.</div>' : ''}\n  <div class=\"total\">Total estimate: ${eur(d.total_eur)}</div>\n  <div class=\"note\">This is a draft estimate based on the information and photos provided. The final price will be confirmed after an on-site inspection. Valid for 30 days.</div>\n</body></html>`;\n\nconst binary = await this.helpers.prepareBinaryData(Buffer.from(html, 'utf-8'), 'index.html', 'text/html');\n\nreturn [{ json: { ...d, quoteNo }, binary: { data: binary } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2432,
+        0
+      ],
+      "id": "cc3cf59a-8f6b-4a82-abe8-50fb9fcb64ac",
+      "name": "Build revised HTML"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://gotenberg:3000/forms/chromium/convert/html",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Gotenberg-Output-Filename",
+              "value": "=Quote_{{ $json.quoteNo }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "files",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "pdf"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2640,
+        0
+      ],
+      "id": "682ec724-5d36-43e9-9d38-1d2dd34cc4de",
+      "name": "Generate revised PDF",
+      "retryOnFail": true,
+      "waitBetweenTries": 500
+    },
+    {
+      "parameters": {
+        "jsCode": "const q = $('Build revised HTML').first().json;\nreturn [{\n  json: { ...q, status: 'Sent with changes' },\n  binary: $('Generate revised PDF').first().binary\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2864,
+        0
+      ],
+      "id": "21f52d63-4b4c-4bf7-9a4b-eb4f1f766e51",
+      "name": "Restore revised PDF"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "Analyze roof with Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze roof with Claude": {
+      "main": [
+        [
+          {
+            "node": "Parse AI response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI response": {
+      "main": [
+        [
+          {
+            "node": "Get price list",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get price list": {
+      "main": [
+        [
+          {
+            "node": "Calculate prices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate prices": {
+      "main": [
+        [
+          {
+            "node": "Build quote HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build quote HTML": {
+      "main": [
+        [
+          {
+            "node": "Generate PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate PDF": {
+      "main": [
+        [
+          {
+            "node": "Email owner: draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email owner: draft": {
+      "main": [
+        [
+          {
+            "node": "Owner approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Owner approval": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore PDF": {
+      "main": [
+        [
+          {
+            "node": "Send quote to customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send quote to customer": {
+      "main": [
+        [
+          {
+            "node": "Log sent quote",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Restore PDF",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Apply corrections",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log declined quote",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build revised HTML": {
+      "main": [
+        [
+          {
+            "node": "Generate revised PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply corrections": {
+      "main": [
+        [
+          {
+            "node": "Build revised HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate revised PDF": {
+      "main": [
+        [
+          {
+            "node": "Restore revised PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore revised PDF": {
+      "main": [
+        [
+          {
+            "node": "Send quote to customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "MlVSXuTQXLkeSnPM",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "999d4c29-6d04-4e85-9faa-abedec39400b",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "id": "Xi3X2iOqoBoJCpJ5",
+  "tags": []
+}

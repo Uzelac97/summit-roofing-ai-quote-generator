@@ -1,0 +1,68 @@
+{
+  "name": "Summit Roofing – Error alert",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "3089a4a0-4e9e-4a21-9e60-26706de07602",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "sendTo": "owner@example.com",
+        "subject": "=     ⚠ Workflow failed: {{ $json.workflow.name }}",
+        "emailType": "text",
+        "message": "=     Workflow: {{ $json.workflow.name }}      Failed node: {{ $json.execution.lastNodeExecuted }}      Error: {{ $json.execution.error.message }}      Time: {{ $now.toFormat('yyyy-MM-dd HH:mm') }}      Execution: {{ $json.execution.url }}       The customer did not receive a quote. Check the execution and contact them manually if needed.",
+        "options": {
+          "appendAttribution": false,
+          "senderName": "Summit Roofing"
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "e905e622-c5ae-4d93-b197-a90e6b62eef9",
+      "name": "Send a message",
+      "webhookId": "da8970ba-6275-4a36-8264-dac84d09a3a1",
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "c7a18ecc-4862-47f1-8202-356e517ebd3e",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "id": "MlVSXuTQXLkeSnPM",
+  "tags": []
+}
