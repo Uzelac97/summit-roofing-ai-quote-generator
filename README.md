@@ -1,6 +1,6 @@
 # Summit Roofing – AI Quote Generator
 
-An n8n automation that turns a customer's roof photo and job description into a priced, branded PDF quote. The business owner approves it with one click before anything is sent.
+An n8n automation that turns a customer's roof photo and job description into a priced, branded PDF quote. The business owner reviews and approves it before anything is sent.
 
 > Summit Roofing is a fictional company used for this demo. The workflow fits any trade business that quotes from a fixed price list.
 
@@ -140,7 +140,7 @@ flowchart LR
    - Replace `owner@example.com` with the owner's address in *Email owner: draft*, *Owner approval* and the error workflow's *Send a message* node.
    - In the quote workflow's *Settings*, set **Error workflow** to *Summit Roofing – Error alert*.
 
-6. **Activate** both workflows and open the production URL of the *On form submission* node to submit a test request.
+6. **Publish (activate)** both workflows and open the production URL of the *On form submission* node to submit a test request.
 
 > **Note:** The approval button in the owner's email links back to your n8n instance. For the owner to use it from another device, n8n must be reachable at a public URL (set `WEBHOOK_URL`), not only `localhost`.
 
