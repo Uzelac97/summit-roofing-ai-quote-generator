@@ -36,12 +36,12 @@
       "type": "n8n-nodes-base.formTrigger",
       "typeVersion": 2.6,
       "position": [
-        0,
-        0
+        -16,
+        -176
       ],
       "id": "08221a37-ec2f-40f6-81ac-9732a2e77334",
       "name": "On form submission",
-      "webhookId": "8aa3a026-31b9-4f41-b35c-9d7a7ae5b297"
+      "webhookId": "YOUR_WEBHOOK_ID_1"
     },
     {
       "parameters": {
@@ -52,9 +52,9 @@
           "mode": "list",
           "cachedResultName": "claude-sonnet-5-5"
         },
-        "text": "=You are an estimator for a roofing company. Analyze the customer's description and the roof photo and return ONLY valid JSON, no other text.\n\nCustomer description: {{ $('On form submission').item.json['Job description'] }}\n\nAllowed items (item_id: unit). The quantity MUST be expressed in the listed unit:\ntile_replace: m2, tile_repair: piece, gutter_replace: m, gutter_clean: m, flashing_repair: m, ridge_repair: m, leak_fix: job, insulation: m2, skylight_install: piece, scaffolding: job, inspection: job, disposal: job, moss_removal: m2\n\nReturn exactly this structure:\n{\n  \"job_type\": \"string\",\n  \"items\": [{\"item_id\": \"string\", \"quantity\": number, \"quantity_estimated\": boolean, \"reasoning\": \"string\"}],\n  \"roof_area_m2_estimate\": number or null,\n  \"material\": \"string\",\n  \"urgency\": \"low | medium | high\",\n  \"missing_info\": [\"string\"],\n  \"confidence\": number between 0 and 1\n}\n\nRules:\n- Use only the allowed item_ids.\n- Never mention or invent prices.\n- Set \"quantity_estimated\": true if the quantity was not explicitly stated by the customer or clearly measurable from the photo. Estimate conservatively and lower the confidence.\n- List anything you could not determine in missing_info.\n- List at most 4 of the most important items in missing_info.\n- Keep each \"reasoning\" under 15 words.\n- Include only items that are clearly visible in the photo or explicitly mentioned in the description.\n- Do not add leak_fix unless a leak or water damage is mentioned or visible.\n- Do not charge the same work twice (e.g. tile_repair and tile_replace for the same area).\n- Always include inspection (quantity 1) when the description is vague or your confidence is below 0.7.",
+        "text": "=You are an estimator for a roofing company. Analyze the customer's description and the roof photo and return ONLY valid JSON, no other text.\n\nCustomer description: {{ $('Normalize input').item.json.description }}\n\nAllowed items (item_id: unit). The quantity MUST be expressed in the listed unit:\ntile_replace: m2, tile_repair: piece, gutter_replace: m, gutter_clean: m, flashing_repair: m, ridge_repair: m, leak_fix: job, insulation: m2, skylight_install: piece, scaffolding: job, inspection: job, disposal: job, moss_removal: m2\n\nReturn exactly this structure:\n{\n  \"job_type\": \"string\",\n  \"items\": [{\"item_id\": \"string\", \"quantity\": number, \"quantity_estimated\": boolean, \"reasoning\": \"string\"}],\n  \"roof_area_m2_estimate\": number or null,\n  \"material\": \"string\",\n  \"urgency\": \"low | medium | high\",\n  \"missing_info\": [\"string\"],\n  \"confidence\": number between 0 and 1\n}\n\nRules:\n- Use only the allowed item_ids.\n- Never mention or invent prices.\n- Set \"quantity_estimated\": true if the quantity was not explicitly stated by the customer or clearly measurable from the photo. Estimate conservatively and lower the confidence.\n- List anything you could not determine in missing_info.\n- List at most 4 of the most important items in missing_info.\n- Keep each \"reasoning\" under 15 words.\n- Include only items that are clearly visible in the photo or explicitly mentioned in the description.\n- Do not add leak_fix unless a leak or water damage is mentioned or visible.\n- Do not charge the same work twice (e.g. tile_repair and tile_replace for the same area).\n- Always include inspection (quantity 1) when the description is vague or your confidence is below 0.7.",
         "inputType": "binary",
-        "binaryPropertyName": "Roof_photos",
+        "binaryPropertyName": "photo",
         "options": {
           "maxTokens": 4096
         }
@@ -62,8 +62,8 @@
       "type": "@n8n/n8n-nodes-langchain.anthropic",
       "typeVersion": 1,
       "position": [
-        208,
-        0
+        432,
+        -80
       ],
       "id": "11c6de3e-df60-4157-bfc6-f119b12ac53f",
       "name": "Analyze roof with Claude",
@@ -77,13 +77,13 @@
     },
     {
       "parameters": {
-        "jsCode": "const blocks = $input.first().json.content;\nconst raw = blocks.filter(b => b.type === 'text').map(b => b.text).join('');\nconst clean = raw.replace(/```json|```/g, '').trim();\nconst analysis = JSON.parse(clean);\nconst form = $('On form submission').first().json;\n\nreturn [{\n  json: {\n    name: form['Name'],\n    email: form['Email'],\n    address: form['Address'],\n    description: form['Job description'],\n    ...analysis\n  }\n}];"
+        "jsCode": "const blocks = $input.first().json.content;\nconst raw = blocks.filter(b => b.type === 'text').map(b => b.text).join('');\nconst clean = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);\nconst analysis = JSON.parse(clean);\nconst form = $('Normalize input').first().json;\n\nconst cap = s => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);\n\nreturn [{\n  json: {\n    name: form.name,\n    email: form.email,\n    address: form.address,\n    description: form.description,\n    source: form.source,\n    ...analysis,\n    job_type: cap(analysis.job_type)\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        448,
-        0
+        656,
+        -80
       ],
       "id": "33063922-ee6c-41cb-a4fb-918e82ec9cd8",
       "name": "Parse AI response"
@@ -109,14 +109,14 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        656,
-        0
+        880,
+        -80
       ],
       "id": "0b984a41-9863-4a28-a258-58c8c4d1aa4b",
       "name": "Get price list",
       "credentials": {
         "googleSheetsOAuth2Api": {
-          "name": "Google Sheets account"
+          "name": "Google Sheets – Summit"
         }
       }
     },
@@ -127,8 +127,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        864,
-        0
+        1104,
+        -80
       ],
       "id": "9b1f1ebe-442e-47d3-aa0b-c067cbcfcbe2",
       "name": "Calculate prices"
@@ -140,8 +140,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1088,
-        0
+        1328,
+        -80
       ],
       "id": "38400eff-9d0f-401f-b177-f9c811cba6dc",
       "name": "Build quote HTML"
@@ -182,8 +182,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        1312,
-        0
+        1552,
+        -80
       ],
       "id": "29408978-5575-4b7f-b98a-b9fd6d35cef3",
       "name": "Generate PDF",
@@ -211,12 +211,12 @@
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.2,
       "position": [
-        1520,
-        0
+        1776,
+        -80
       ],
       "id": "c09785d3-0c3e-4d72-afb8-b57c4d7f6316",
       "name": "Email owner: draft",
-      "webhookId": "feac739c-b54f-44ef-8bb6-b0a829b9f3ca",
+      "webhookId": "YOUR_WEBHOOK_ID_2",
       "credentials": {
         "gmailOAuth2": {
           "name": "Gmail account"
@@ -275,12 +275,12 @@
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.2,
       "position": [
-        1744,
-        0
+        2000,
+        -80
       ],
       "id": "cd3c12ba-3fab-4b93-bfb0-407b7d28c411",
       "name": "Owner approval",
-      "webhookId": "ec548cee-c13f-40a9-b1de-8af359d0557c",
+      "webhookId": "YOUR_WEBHOOK_ID_3",
       "credentials": {
         "gmailOAuth2": {
           "name": "Gmail account"
@@ -294,7 +294,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2176,
+        3120,
         -272
       ],
       "id": "8bf31e6e-33f4-4b25-ab40-438da2eb0b12",
@@ -304,7 +304,7 @@
       "parameters": {
         "sendTo": "={{ $json.email }}",
         "subject": "=Your roofing quote {{ $json.quoteNo }} from Summit Roofing",
-        "message": "=<p>Hi {{ $json.name }},</p>\n\n<p>Thank you for your request. Please find your quote attached (total estimate: <strong>{{ new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format($json.total_eur) }}</strong>).</p>\n\n{{ $json.owner_note ? '<p>' + $json.owner_note + '</p>' : '' }}\n\n<p>The final price will be confirmed after an on-site inspection. Reply to this email if you have questions.</p>\n\n<p>Best regards,<br>Summit Roofing</p>",
+        "message": "=<p>Hi {{ ($json.name || '').split(' ')[0] || 'there' }},</p>\n\n<p>Thank you for your request. Please find your quote attached (total estimate: <strong>{{ new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format($json.total_eur) }}</strong>).</p>\n\n{{ $json.owner_note ? '<p>' + $json.owner_note + '</p>' : '' }}\n\n<p>The final price will be confirmed after an on-site inspection. Reply to this email if you have questions.</p>\n\n<p>Best regards,<br>The Summit Roofing Team</p>",
         "options": {
           "appendAttribution": false,
           "attachmentsUi": {
@@ -320,12 +320,12 @@
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.2,
       "position": [
-        2384,
-        -272
+        3344,
+        -176
       ],
       "id": "25d091b6-c142-48d9-ba55-aa0401e9227e",
       "name": "Send quote to customer",
-      "webhookId": "64528d94-bb5a-4dae-92e6-e46ec6fe0386",
+      "webhookId": "YOUR_WEBHOOK_ID_4",
       "credentials": {
         "gmailOAuth2": {
           "name": "Gmail account"
@@ -344,10 +344,10 @@
         },
         "sheetName": {
           "__rl": true,
-          "value": 881375403,
+          "value": 713042557,
           "mode": "list",
           "cachedResultName": "Quotes_Log",
-          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit#gid=881375403"
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit#gid=713042557"
         },
         "columns": {
           "mappingMode": "defineBelow",
@@ -357,7 +357,8 @@
             "email": "={{ ($('Restore revised PDF').isExecuted ? $('Restore revised PDF') : $('Restore PDF')).first().json.email }}",
             "job_summary": "={{ ($('Restore revised PDF').isExecuted ? $('Restore revised PDF') : $('Restore PDF')).first().json.job_type }}",
             "total_eur": "={{ ($('Restore revised PDF').isExecuted ? $('Restore revised PDF') : $('Restore PDF')).first().json.total_eur }}",
-            "status": "={{ ($('Restore revised PDF').isExecuted ? $('Restore revised PDF') : $('Restore PDF')).first().json.status }}"
+            "status": "={{ ($('Restore revised PDF').isExecuted ? $('Restore revised PDF') : $('Restore PDF')).first().json.status }}",
+            "source": "={{ ($('Restore revised PDF').isExecuted ? $('Restore revised PDF') : $('Restore PDF')).first().json.source }}"
           },
           "matchingColumns": [],
           "schema": [
@@ -368,7 +369,8 @@
               "defaultMatch": false,
               "display": true,
               "type": "string",
-              "canBeUsedToMatch": true
+              "canBeUsedToMatch": true,
+              "removed": false
             },
             {
               "id": "customer_name",
@@ -377,7 +379,8 @@
               "defaultMatch": false,
               "display": true,
               "type": "string",
-              "canBeUsedToMatch": true
+              "canBeUsedToMatch": true,
+              "removed": false
             },
             {
               "id": "email",
@@ -386,7 +389,8 @@
               "defaultMatch": false,
               "display": true,
               "type": "string",
-              "canBeUsedToMatch": true
+              "canBeUsedToMatch": true,
+              "removed": false
             },
             {
               "id": "job_summary",
@@ -395,7 +399,8 @@
               "defaultMatch": false,
               "display": true,
               "type": "string",
-              "canBeUsedToMatch": true
+              "canBeUsedToMatch": true,
+              "removed": false
             },
             {
               "id": "total_eur",
@@ -404,7 +409,8 @@
               "defaultMatch": false,
               "display": true,
               "type": "string",
-              "canBeUsedToMatch": true
+              "canBeUsedToMatch": true,
+              "removed": false
             },
             {
               "id": "status",
@@ -413,7 +419,18 @@
               "defaultMatch": false,
               "display": true,
               "type": "string",
-              "canBeUsedToMatch": true
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
             }
           ],
           "attemptToConvertTypes": false,
@@ -424,14 +441,14 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        2608,
-        -272
+        3568,
+        -176
       ],
       "id": "25adf534-c78b-4776-b741-0e6e8e3e4b7d",
       "name": "Log sent quote",
       "credentials": {
         "googleSheetsOAuth2Api": {
-          "name": "Google Sheets account"
+          "name": "Google Sheets – Summit"
         }
       }
     },
@@ -447,10 +464,10 @@
         },
         "sheetName": {
           "__rl": true,
-          "value": 881375403,
+          "value": 713042557,
           "mode": "list",
           "cachedResultName": "Quotes_Log",
-          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit#gid=881375403"
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit#gid=713042557"
         },
         "columns": {
           "mappingMode": "defineBelow",
@@ -460,7 +477,8 @@
             "email": "={{ $('Build quote HTML').item.json.email }}",
             "job_summary": "={{ $('Build quote HTML').item.json.job_type }}",
             "total_eur": "={{ $('Build quote HTML').item.json.total_eur }}",
-            "status": "Declined"
+            "status": "Declined",
+            "source": "={{ $('Build quote HTML').item.json.source }}"
           },
           "matchingColumns": [],
           "schema": [
@@ -471,7 +489,8 @@
               "defaultMatch": false,
               "display": true,
               "type": "string",
-              "canBeUsedToMatch": true
+              "canBeUsedToMatch": true,
+              "removed": false
             },
             {
               "id": "customer_name",
@@ -480,7 +499,8 @@
               "defaultMatch": false,
               "display": true,
               "type": "string",
-              "canBeUsedToMatch": true
+              "canBeUsedToMatch": true,
+              "removed": false
             },
             {
               "id": "email",
@@ -489,7 +509,8 @@
               "defaultMatch": false,
               "display": true,
               "type": "string",
-              "canBeUsedToMatch": true
+              "canBeUsedToMatch": true,
+              "removed": false
             },
             {
               "id": "job_summary",
@@ -498,7 +519,8 @@
               "defaultMatch": false,
               "display": true,
               "type": "string",
-              "canBeUsedToMatch": true
+              "canBeUsedToMatch": true,
+              "removed": false
             },
             {
               "id": "total_eur",
@@ -507,7 +529,8 @@
               "defaultMatch": false,
               "display": true,
               "type": "string",
-              "canBeUsedToMatch": true
+              "canBeUsedToMatch": true,
+              "removed": false
             },
             {
               "id": "status",
@@ -516,7 +539,18 @@
               "defaultMatch": false,
               "display": true,
               "type": "string",
-              "canBeUsedToMatch": true
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
             }
           ],
           "attemptToConvertTypes": false,
@@ -527,14 +561,14 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        2160,
-        288
+        2448,
+        112
       ],
       "id": "138fc2d2-11d1-4c1e-8f29-6c7f8f981ef4",
       "name": "Log declined quote",
       "credentials": {
         "googleSheetsOAuth2Api": {
-          "name": "Google Sheets account"
+          "name": "Google Sheets – Summit"
         }
       }
     },
@@ -623,8 +657,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.4,
       "position": [
-        1968,
-        -16
+        2224,
+        -96
       ],
       "id": "74f544d0-7e53-4124-90b1-c4e831159283",
       "name": "Switch"
@@ -636,8 +670,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2208,
-        0
+        2448,
+        -80
       ],
       "id": "a8486789-08cd-4ff1-9e2d-60fdebfcd3ca",
       "name": "Apply corrections"
@@ -649,8 +683,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2432,
-        0
+        2672,
+        -80
       ],
       "id": "cc3cf59a-8f6b-4a82-abe8-50fb9fcb64ac",
       "name": "Build revised HTML"
@@ -691,8 +725,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        2640,
-        0
+        2896,
+        -80
       ],
       "id": "682ec724-5d36-43e9-9d38-1d2dd34cc4de",
       "name": "Generate revised PDF",
@@ -706,11 +740,46 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2864,
-        0
+        3120,
+        -80
       ],
       "id": "21f52d63-4b4c-4bf7-9a4b-eb4f1f766e51",
       "name": "Restore revised PDF"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "summit-quote",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -16,
+        16
+      ],
+      "id": "e4c154a8-4dca-49bc-a555-6558fea912af",
+      "name": "Webhook",
+      "webhookId": "YOUR_WEBHOOK_ID_5",
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Summit Inbox Agent key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst j = item.json;\nconst b = j.body ?? j;\n\nconst pick = (...keys) => {\n  for (const k of keys) {\n    if (b[k] !== undefined && b[k] !== null && b[k] !== '') return String(b[k]);\n  }\n  return '';\n};\n\nconst data = {\n  name: pick('Name', 'name'),\n  email: pick('Email', 'email'),\n  address: pick('Address', 'address'),\n  description: pick('Job description', 'job_description'),\n  source: j.body ? 'email' : 'form'\n};\n\nconst bin = item.binary || {};\nconst firstKey = Object.keys(bin)[0];\nif (!firstKey) throw new Error('No roof photo received');\n\nreturn [{ json: data, binary: { photo: bin[firstKey] } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        -80
+      ],
+      "id": "0e0ff8fc-bdb7-4af3-9c53-b9b776f76cda",
+      "name": "Normalize input"
     }
   ],
   "pinData": {},
@@ -719,7 +788,7 @@
       "main": [
         [
           {
-            "node": "Analyze roof with Claude",
+            "node": "Normalize input",
             "type": "main",
             "index": 0
           }
@@ -904,6 +973,28 @@
           }
         ]
       ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize input": {
+      "main": [
+        [
+          {
+            "node": "Analyze roof with Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
@@ -915,7 +1006,7 @@
     "callerPolicy": "workflowsFromSameOwner",
     "availableInMCP": false
   },
-  "versionId": "999d4c29-6d04-4e85-9faa-abedec39400b",
+  "versionId": "4b95799f-4e12-48da-a4ae-bba377996962",
   "meta": {
     "templateCredsSetupCompleted": true
   },
