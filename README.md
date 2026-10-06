@@ -83,30 +83,30 @@ The customer fills in a short web form and uploads a roof photo, or the inbox ag
 ## How it works
 
 ```mermaid
-flowchart LR
-    A[Customer web form<br>photo + description] --> N[Normalize input<br>one shape + source]
-    W[Webhook POST /summit-quote<br>from inbox agent] --> N
-    N --> B[Claude<br>analyze photo + text]
-    B --> C[Parse JSON]
-    C --> D[(Google Sheets<br>PriceList)]
-    D --> E[Calculate prices<br>+ review flags]
-    E --> F[Build quote HTML]
-    F --> G[Gotenberg<br>HTML to PDF]
-    G --> H[Email owner<br>draft + reasoning]
-    H --> I{Owner approval<br>Gmail send and wait}
+flowchart TD
+    F[Customer web form] --> N[Normalize input]
+    W[Inbox agent webhook] --> N
+    N --> C[Claude analyzes photo + text]
+    C --> P[Parse JSON]
+    P --> S[(Google Sheets PriceList)]
+    S --> K[Calculate prices + flags]
+    K --> B[Build quote HTML]
+    B --> G[Gotenberg HTML to PDF]
+    G --> E[Email owner draft]
+    E --> A{Owner approval}
 
-    I -- Approve --> J[Attach original PDF]
-    I -- Approve with changes --> K[Apply corrections]
-    K --> L[Build revised HTML]
-    L --> M[Gotenberg<br>revised PDF]
-    M --> O2[Attach revised PDF]
-    J --> O[Send quote to customer]
-    O2 --> O
-    O --> P[(Quotes_Log<br>Sent / Sent with changes)]
-    I -- Decline --> Q[(Quotes_Log<br>Declined)]
+    A -- Approve --> AP[Attach original PDF]
+    A -- Approve with changes --> AC[Apply corrections]
+    AC --> BR[Build revised HTML]
+    BR --> GR[Gotenberg revised PDF]
+    GR --> AR[Attach revised PDF]
+    AP --> SQ[Send quote to customer]
+    AR --> SQ
+    SQ -- Sent / Sent with changes --> LOG[(Quotes_Log)]
+    A -- Decline --> LOG
 
-    subgraph Error workflow
-        X[Error Trigger<br>any failed run] --> Y[Email owner<br>failed node + execution link]
+    subgraph ERR[Error workflow]
+        ET[Error Trigger] --> EM[Email owner alert]
     end
 ```
 
