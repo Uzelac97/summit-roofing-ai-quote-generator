@@ -12,7 +12,7 @@ An n8n automation that turns a roof photo and job description into a priced, bra
 
 ## Part of the Summit Roofing AI back-office
 
-This workflow is one part of a small set of AI tools for Summit Roofing's back office. The **[Summit inbox agent](https://github.com/Uzelac97/summit-inbox-agent)** handles incoming quote requests and sends them to this workflow's webhook. Requests from email and from the website then go through the same pipeline, and the owner reviews them in the same way.
+This workflow is one of three parts of a small set of AI tools for Summit Roofing's back office. The **[Summit inbox agent](https://github.com/Uzelac97/summit-inbox-agent)** handles incoming quote requests and sends them to this workflow's webhook. Requests from email and from the website then go through the same pipeline, and the owner reviews them in the same way. The **[Summit follow-up agent](https://github.com/Uzelac97/summit-followup-agent)** reads the `Quotes_Log` rows this workflow writes, watches the Gmail thread of each sent quote, and drafts reminders after 3 and 7 days if the customer has not replied. See the **[system overview](https://github.com/Uzelac97/summit-roofing-ai-backoffice)** for how all three fit together.
 
 ---
 
@@ -207,11 +207,11 @@ All supported `item_id`s and their units:
 
 **`Quotes_Log`**: the workflow appends one row per outcome.
 
-| date | customer_name | email | job_summary | total_eur | status | source |
-|---|---|---|---|---|---|---|
-| 2026-10-05 15:13 | Sarah Mitchell | customer@example.com | Gutter cleaning and cracked tile repair | 340 | Sent with changes | form |
+| date | customer_name | email | job_summary | total_eur | status | source | quote_no | thread_id | reminders_sent | last_reminder_at |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 2026-10-05 15:13 | Sarah Mitchell | customer@example.com | Gutter cleaning and cracked tile repair | 340 | Sent with changes | form | SR-123456 | 1a2b3c4d5e6f7a8b | 0 | |
 
-`source` is `form` for requests from the customer web form and `email` for requests received through the webhook.
+`source` is `form` for requests from the customer web form and `email` for requests received through the webhook. The workflow writes `quote_no` and `thread_id` of the quote email, and sets `reminders_sent` to `0`. `last_reminder_at` is filled in later by the follow-up agent, not by this workflow.
 
 ---
 
